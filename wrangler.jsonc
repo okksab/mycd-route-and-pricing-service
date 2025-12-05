@@ -1,0 +1,16 @@
+{
+	"compatibility_date": "2025-10-08",
+	"main": "src/index.ts",
+	"name": "mycd-route-and-pricing-service",
+	"upload_source_maps": true,
+	"observability": {
+		"enabled": true
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mycd-route-and-pricing-service-db",
+			"database_id": "74d5a117-38a2-45aa-9913-8ad8771681ad"
+		}
+	]
+}
