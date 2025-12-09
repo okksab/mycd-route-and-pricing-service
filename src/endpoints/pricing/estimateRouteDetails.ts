@@ -112,8 +112,14 @@ Output format example (structure only):
 				console.log(`Using ${llmKey ? 'custom' : 'default'} AI credentials`);
 			}
 
+			// Log before AI call
+			console.log(`[AI CALL] Starting AI inference for route: ${fromPin} → ${toPin}`);
+			console.log(`[AI CALL] Model: @cf/mistral/mistral-7b-instruct-v0.1`);
+			console.log(`[AI CALL] Timestamp: ${new Date().toISOString()}`);
+
 			// Call Cloudflare AI with Mistral model
 			// Note: MYCD_LLM_KEY can be used for custom AI provider in future
+			const aiStartTime = Date.now();
 			const response = await c.env.AI.run("@cf/mistral/mistral-7b-instruct-v0.1", {
 				messages: [
 					{
@@ -127,6 +133,13 @@ Output format example (structure only):
 				],
 				stream: false,
 			});
+			const aiEndTime = Date.now();
+			const aiDuration = aiEndTime - aiStartTime;
+
+			// Log after AI call
+			console.log(`[AI RESPONSE] Received response in ${aiDuration}ms`);
+			console.log(`[AI RESPONSE] Raw response:`, typeof response === 'string' ? response : JSON.stringify(response));
+			console.log(`[AI RESPONSE] Timestamp: ${new Date().toISOString()}`);
 
 			// Parse the AI response
 			let aiResult;
