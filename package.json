@@ -30,11 +30,15 @@
 	"private": true,
 	"scripts": {
 		"cf-typegen": "wrangler types",
-		"deploy": "wrangler deploy",
-		"dev": "pnpm seedLocalDb && wrangler dev",
-		"predeploy": "wrangler d1 migrations apply DB --remote",
+		"dev": "npm run seedLocalDb && wrangler dev --config wrangler.jsonc",
+		"deploy": "wrangler deploy --config wrangler.jsonc",
+		"deploy:prod": "wrangler deploy --config wrangler.production.jsonc",
+		"predeploy": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
+		"predeploy:prod": "wrangler d1 migrations apply DB --remote --config wrangler.production.jsonc",
 		"schema": "npx chanfana",
 		"seedLocalDb": "wrangler d1 migrations apply DB --local",
-		"test": "wrangler deploy --dry-run && npx vitest run --config tests/vitest.config.mts"
+		"test": "wrangler deploy --dry-run && npx vitest run --config tests/vitest.config.mts",
+		"secrets:set": "wrangler secret put MYCD_LLM_KEY",
+		"secrets:set:prod": "wrangler secret put MYCD_LLM_KEY --config wrangler.production.jsonc"
 	}
 }

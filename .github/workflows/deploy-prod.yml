@@ -1,0 +1,128 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy-to-production" to confirm'
+        required: true
+        type: string
+
+jobs:
+  validate-deployment:
+    runs-on: ubuntu-latest
+    name: Validate Production Deployment
+    
+    steps:
+      - name: Validate confirmation
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "deploy-to-production" ]; then
+            echo "❌ Deployment confirmation failed"
+            exit 1
+          fi
+          echo "✅ Deployment confirmed"
+
+  deploy-production:
+    needs: validate-deployment
+    runs-on: ubuntu-latest
+    name: Deploy to Production Environment
+    environment:
+      name: production
+      url: https://mycd-route-and-pricing-service.YOUR-SUBDOMAIN.workers.dev
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run comprehensive tests
+        run: npm test
+
+      - name: Run security audit
+        run: npm audit --production
+
+      - name: Build OpenAPI schema
+        run: npm run schema
+
+      - name: Apply database migrations (Production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: d1 migrations apply DB --remote --config wrangler.production.jsonc
+
+      - name: Deploy to Cloudflare Workers (Production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config wrangler.production.jsonc
+          secrets: |
+            MYCD_LLM_KEY
+        env:
+          MYCD_LLM_KEY: ${{ secrets.MYCD_LLM_KEY_PROD }}
+
+      - name: Run production smoke tests
+        run: |
+          echo "Running production smoke tests"
+          sleep 10  # Wait for deployment to propagate
+          # Add your production smoke test commands here
+          # curl -X POST https://mycd-route-and-pricing-service.workers.dev/route/estimate \
+          #   -H "Content-Type: application/json" \
+          #   -d '{"fromPin": "560001", "toPin": "400001"}'
+
+      - name: Create deployment tag
+        if: success()
+        run: |
+          git tag -a "prod-$(date +'%Y%m%d-%H%M%S')" -m "Production deployment"
+          git push origin --tags || echo "Could not push tags"
+
+      - name: Post-deployment verification
+        run: |
+          echo "✅ Production deployment completed successfully"
+          echo "Worker URL: https://mycd-route-and-pricing-service.YOUR-SUBDOMAIN.workers.dev"
+          echo "API Docs: https://mycd-route-and-pricing-service.YOUR-SUBDOMAIN.workers.dev/"
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Production deployment successful"
+            # Add notification to Slack/Discord/Email here
+          else
+            echo "❌ Production deployment failed"
+            # Add failure notification here
+          fi
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            openapi.json
+          body: |
+            ## MyCallDriver Route Intelligence Service
+
+            Deployed to production at: ${{ github.event.head_commit.timestamp }}
+            
+            ### Changes
+            ${{ github.event.head_commit.message }}
+            
+            ### Deployment Info
+            - Environment: Production
+            - Worker URL: https://mycd-route-and-pricing-service.YOUR-SUBDOMAIN.workers.dev
+            - API Version: 2.1.0

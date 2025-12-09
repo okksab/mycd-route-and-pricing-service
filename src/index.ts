@@ -1,6 +1,7 @@
 import { ApiException, fromHono } from "chanfana";
 import { Hono } from "hono";
 import { tasksRouter } from "./endpoints/tasks/router";
+import { pricingRouter } from "./endpoints/pricing/router";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import { DummyEndpoint } from "./endpoints/dummyEndpoint";
 
@@ -33,15 +34,18 @@ const openapi = fromHono(app, {
 	docs_url: "/",
 	schema: {
 		info: {
-			title: "My Awesome API",
-			version: "2.0.0",
-			description: "This is the documentation for my awesome API.",
+			title: "MyCallDriver Route Intelligence API",
+			version: "2.1.0",
+			description: "AI-powered route intelligence and pricing service for MyCallDriver platform. Provides intelligent route estimation, distance calculation, travel time prediction, and dynamic pricing between Indian locations using advanced LLM capabilities.",
 		},
 	},
 });
 
 // Register Tasks Sub router
 openapi.route("/tasks", tasksRouter);
+
+// Register Route Intelligence router
+openapi.route("/routes", pricingRouter);
 
 // Register other endpoints
 openapi.post("/dummy/:slug", DummyEndpoint);

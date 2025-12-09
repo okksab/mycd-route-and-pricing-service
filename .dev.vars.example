@@ -1,0 +1,21 @@
+# MyCallDriver Route Intelligence Service - Development Environment
+# Copy this file to .dev.vars for local development
+
+# Environment identifier
+ENVIRONMENT=development
+
+# Optional: Custom LLM API Key (if using external AI provider)
+# MYCD_LLM_KEY=your-development-llm-key-here
+
+# D1 Database Configuration (automatically bound by Wrangler)
+# DB binding is configured in wrangler.jsonc
+
+# AI Model Configuration (automatically bound by Cloudflare)
+# AI binding is configured in wrangler.jsonc
+
+# Logging Level
+LOG_LEVEL=debug
+
+# Feature Flags
+ENABLE_CACHING=false
+ENABLE_DETAILED_LOGGING=true
