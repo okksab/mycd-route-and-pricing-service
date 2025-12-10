@@ -29,7 +29,7 @@ const MYSQL_CONFIG = {
 
 const D1_DATABASE = 'mycd-route-and-pricing-service-db';
 const BATCH_SIZE = 500;
-const USE_LOCAL = true; // Set to false for remote D1 database
+const USE_LOCAL = false; // Set to false for remote D1 database
 
 // Log files
 const TIMESTAMP = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
@@ -151,7 +151,10 @@ async function migrateMySQLtoD1() {
 
       // Create temporary SQL file
       const tempFile = `temp_batch_${i}.sql`;
-      const sqlContent = `BEGIN TRANSACTION;\n${sqlStatements}\nCOMMIT;`;
+      // Remove transactions for remote D1 (not supported via CLI)
+      const sqlContent = USE_LOCAL 
+        ? `BEGIN TRANSACTION;\n${sqlStatements}\nCOMMIT;`
+        : sqlStatements; // No transactions for remote
       fs.writeFileSync(tempFile, sqlContent);
 
       // Execute via Wrangler
