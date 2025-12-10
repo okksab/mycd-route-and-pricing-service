@@ -1,8 +1,11 @@
 /**
- * Direct MySQL to Cloudflare D1 Migration Script
+ * Direct MySQL to Cloudflare D1 Migration Script (Smart Sync)
  * 
- * This script connects to your local MySQL database, reads geo_pincode_master table,
- * and directly inserts data into Cloudflare D1 using Wrangler CLI
+ * Features:
+ * - Checks for existing pincodes in D1 before inserting
+ * - Logs all operations to CSV files
+ * - Skips duplicates automatically
+ * - Detailed progress tracking
  * 
  * Prerequisites:
  * - npm install mysql2
@@ -14,21 +17,40 @@
 const mysql = require('mysql2/promise');
 const { execSync } = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 // Configuration
 const MYSQL_CONFIG = {
   host: 'localhost',
   user: 'root',
-  password: 'YOUR_MYSQL_PASSWORD',  // ⚠️ UPDATE THIS
-  database: 'mycd'  // Your database name
+  password: 'admin',  // ⚠️ UPDATE THIS
+  database: 'mycddb'  // Your database name
 };
 
 const D1_DATABASE = 'mycd-route-and-pricing-service-db';
 const BATCH_SIZE = 500;
 const USE_LOCAL = true; // Set to false for remote D1 database
 
+// Log files
+const TIMESTAMP = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0];
+const LOG_DIR = path.join(__dirname, 'logs');
+const INSERTED_LOG = path.join(LOG_DIR, `inserted_${TIMESTAMP}.csv`);
+const SKIPPED_LOG = path.join(LOG_DIR, `skipped_${TIMESTAMP}.csv`);
+const ERROR_LOG = path.join(LOG_DIR, `errors_${TIMESTAMP}.csv`);
+
+// Create logs directory
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR);
+}
+
+// Initialize log files with headers
+fs.writeFileSync(INSERTED_LOG, 'pincode,city,district,state_name,latitude,longitude,timestamp\n');
+fs.writeFileSync(SKIPPED_LOG, 'pincode,reason,timestamp\n');
+fs.writeFileSync(ERROR_LOG, 'pincode,error,timestamp\n');
+
 async function migrateMySQLtoD1() {
-  console.log('🚀 Starting MySQL to D1 migration...\n');
+  console.log('🚀 Starting MySQL to D1 Smart Sync Migration...\n');
+  console.log(`📁 Logs will be saved in: ${LOG_DIR}\n`);
 
   let connection;
   try {
@@ -67,14 +89,42 @@ async function migrateMySQLtoD1() {
       return;
     }
 
+    // Get existing pincodes from D1
+    console.log('🔍 Checking existing pincodes in D1...');
+    const existingPincodes = await getExistingPincodes();
+    console.log(`✅ Found ${existingPincodes.size} existing pincodes in D1\n`);
+
+    // Filter out duplicates
+    const newRecords = rows.filter(row => !existingPincodes.has(row.pincode));
+    const skippedCount = rows.length - newRecords.length;
+
+    // Log skipped records
+    rows.forEach(row => {
+      if (existingPincodes.has(row.pincode)) {
+        const logEntry = `${escapeCSV(row.pincode)},Already exists in D1,${new Date().toISOString()}\n`;
+        fs.appendFileSync(SKIPPED_LOG, logEntry);
+      }
+    });
+
+    console.log(`📊 Summary:`);
+    console.log(`   Total records from MySQL: ${rows.length}`);
+    console.log(`   Already in D1 (skipped): ${skippedCount}`);
+    console.log(`   New records to insert: ${newRecords.length}\n`);
+
+    if (newRecords.length === 0) {
+      console.log('✅ All pincodes already exist in D1. Nothing to migrate.');
+      return;
+    }
+
     // Process in batches
-    const totalBatches = Math.ceil(rows.length / BATCH_SIZE);
+    const totalBatches = Math.ceil(newRecords.length / BATCH_SIZE);
     let importedCount = 0;
+    let errorCount = 0;
 
     for (let i = 0; i < totalBatches; i++) {
       const batchStart = i * BATCH_SIZE;
-      const batchEnd = Math.min((i + 1) * BATCH_SIZE, rows.length);
-      const batch = rows.slice(batchStart, batchEnd);
+      const batchEnd = Math.min((i + 1) * BATCH_SIZE, newRecords.length);
+      const batch = newRecords.slice(batchStart, batchEnd);
 
       console.log(`📦 Processing batch ${i + 1}/${totalBatches} (${batch.length} records)...`);
 
@@ -108,26 +158,50 @@ async function migrateMySQLtoD1() {
       try {
         const localFlag = USE_LOCAL ? '--local' : '--remote';
         const command = `wrangler d1 execute ${D1_DATABASE} ${localFlag} --file=${tempFile}`;
-        execSync(command, { stdio: 'inherit' });
+        execSync(command, { stdio: 'pipe' }); // Use pipe to suppress output
+        
+        // Log successful inserts
+        batch.forEach(row => {
+          const logEntry = `${escapeCSV(row.pincode)},${escapeCSV(row.city)},${escapeCSV(row.district)},${escapeCSV(row.state_name)},${row.latitude},${row.longitude},${new Date().toISOString()}\n`;
+          fs.appendFileSync(INSERTED_LOG, logEntry);
+        });
+        
         importedCount += batch.length;
-        console.log(`✅ Batch ${i + 1} imported successfully (${importedCount}/${rows.length} total)\n`);
+        console.log(`✅ Batch ${i + 1} imported successfully (${importedCount}/${newRecords.length} total)\n`);
       } catch (error) {
-        console.error(`❌ Error importing batch ${i + 1}:`, error.message);
-        throw error;
+        console.error(`❌ Error importing batch ${i + 1}: ${error.message}`);
+        
+        // Log errors for each record in failed batch
+        batch.forEach(row => {
+          const logEntry = `${escapeCSV(row.pincode)},${escapeCSV(error.message)},${new Date().toISOString()}\n`;
+          fs.appendFileSync(ERROR_LOG, logEntry);
+        });
+        
+        errorCount += batch.length;
+        console.log(`⚠️  Continuing with next batch...\n`);
       } finally {
         // Clean up temp file
-        fs.unlinkSync(tempFile);
+        if (fs.existsSync(tempFile)) {
+          fs.unlinkSync(tempFile);
+        }
       }
 
       // Small delay to avoid rate limits
       await sleep(100);
     }
 
-    console.log('\n🎉 Migration completed successfully!');
-    console.log(`📊 Total records migrated: ${importedCount}`);
+    console.log('\n🎉 Migration completed!');
+    console.log('\n📊 Final Summary:');
+    console.log(`   ✅ Successfully inserted: ${importedCount}`);
+    console.log(`   ⏭️  Skipped (duplicates): ${skippedCount}`);
+    console.log(`   ❌ Errors: ${errorCount}`);
+    console.log(`\n📁 Log files:`);
+    console.log(`   Inserted: ${INSERTED_LOG}`);
+    console.log(`   Skipped: ${SKIPPED_LOG}`);
+    console.log(`   Errors: ${ERROR_LOG}`);
 
     // Verify the import
-    console.log('\n🔍 Verifying import...');
+    console.log('\n🔍 Verifying final count in D1...');
     const verifyCommand = `wrangler d1 execute ${D1_DATABASE} ${USE_LOCAL ? '--local' : '--remote'} --command="SELECT COUNT(*) as total FROM pincodes"`;
     execSync(verifyCommand, { stdio: 'inherit' });
 
@@ -142,6 +216,39 @@ async function migrateMySQLtoD1() {
   }
 }
 
+async function getExistingPincodes() {
+  const tempFile = 'temp_check_existing.json';
+  const localFlag = USE_LOCAL ? '--local' : '--remote';
+  
+  try {
+    // Query all existing pincodes from D1
+    const command = `wrangler d1 execute ${D1_DATABASE} ${localFlag} --command="SELECT pincode FROM pincodes" --json > ${tempFile}`;
+    execSync(command, { stdio: 'pipe' });
+    
+    // Read and parse the output
+    const output = fs.readFileSync(tempFile, 'utf8');
+    const result = JSON.parse(output);
+    
+    // Extract pincodes into a Set for fast lookup
+    const pincodes = new Set();
+    if (result && result[0] && result[0].results) {
+      result[0].results.forEach(row => {
+        pincodes.add(row.pincode);
+      });
+    }
+    
+    return pincodes;
+  } catch (error) {
+    console.warn('⚠️  Could not fetch existing pincodes, assuming empty database');
+    return new Set();
+  } finally {
+    // Clean up temp file
+    if (fs.existsSync(tempFile)) {
+      fs.unlinkSync(tempFile);
+    }
+  }
+}
+
 function escapeSQL(value) {
   if (value === null || value === undefined || value === '') {
     return 'NULL';
@@ -152,6 +259,18 @@ function escapeSQL(value) {
   // Escape single quotes
   const escaped = String(value).replace(/'/g, "''");
   return `'${escaped}'`;
+}
+
+function escapeCSV(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  const str = String(value);
+  // Escape quotes and wrap in quotes if contains comma, quote, or newline
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
 }
 
 function sleep(ms) {
