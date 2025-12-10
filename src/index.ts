@@ -2,6 +2,7 @@ import { ApiException, fromHono } from "chanfana";
 import { Hono } from "hono";
 import { tasksRouter } from "./endpoints/tasks/router";
 import { pricingRouter } from "./endpoints/pricing/router";
+import { pincodeRouter } from "./endpoints/pincodes/router";
 import { ContentfulStatusCode } from "hono/utils/http-status";
 import { DummyEndpoint } from "./endpoints/dummyEndpoint";
 
@@ -46,6 +47,9 @@ openapi.route("/tasks", tasksRouter);
 
 // Register Route Intelligence router
 openapi.route("/routes", pricingRouter);
+
+// Register Pincode Lookup router
+openapi.route("/pincodes", pincodeRouter);
 
 // Register other endpoints
 openapi.post("/dummy/:slug", DummyEndpoint);
