@@ -1,5 +1,6 @@
 import { ApiException, fromHono } from "chanfana";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { tasksRouter } from "./endpoints/tasks/router";
 import { pricingRouter } from "./endpoints/pricing/router";
 import { pincodeRouter } from "./endpoints/pincodes/router";
@@ -8,6 +9,16 @@ import { DummyEndpoint } from "./endpoints/dummyEndpoint";
 
 // Start a Hono app
 const app = new Hono<{ Bindings: Env }>();
+
+// Add CORS middleware to allow requests from customer app
+app.use('/*', cors({
+	origin: ['http://localhost:5173', 'https://mycd-customer-app.pages.dev', 'https://www.mycalldriver.com'],
+	allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+	allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+	exposeHeaders: ['Content-Length', 'X-Request-ID'],
+	maxAge: 600,
+	credentials: true,
+}));
 
 app.onError((err, c) => {
 	if (err instanceof ApiException) {
