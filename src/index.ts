@@ -12,7 +12,7 @@ const app = new Hono<{ Bindings: Env }>();
 
 // Add CORS middleware to allow requests from customer app
 app.use('/*', cors({
-	origin: ['http://localhost:5173', 'https://mycd-customer-app.pages.dev', 'https://www.mycalldriver.com'],
+	origin: ['http://localhost:5173', 'https://test-app.mycalldriver.com'],
 	allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
 	allowHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
 	exposeHeaders: ['Content-Length', 'X-Request-ID'],
